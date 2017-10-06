@@ -31,21 +31,25 @@ def merge_vocab(pair, v_in):
   bigram_pattern = re.escape(' '.join(pair))
   p = re.compile(r'(?<!\S)' + bigram_pattern + r'(?!\S)')
   for word in v_in:
-    w_out = p.sub(''.join(pair), word)
+    w_out = p.sub('@'.join(pair), word)
     v_out[w_out] = v_in[word]
   return v_out
 
-vocab = {'l o w</w>' : 5, 'l o w e r</w>' : 2,
-         'n e w e s t</w>' : 6, 'w i d e s t</w>' : 3}
-num_merges = 15
+vocab = {'l o w </w>' : 5, 'l o w e r </w>' : 2,
+         'n e w e s t </w>' : 6, 'w i d e s t </w>' : 3}
+lines = []
+with open("/n/rush_lab/data/iwslt14-de-en/data/iwslt14.tokenized.de-en/train.en", "r") as f:
+    for line in f:
+        lines.append(line)
+truncated_lines = lines[:100]
+vocab = {line:1 for line in truncated_lines}
+num_merges = 150
 for i in range(num_merges):
   pairs = get_stats(vocab)
-  try:
-    best = max(pairs, key=pairs.get)
-  except ValueError:
-    break
+  best = max(pairs, key=pairs.get)
   if pairs[best] < 2:
      sys.stderr.write('no pair has frequency > 1. Stopping\n')
      break
   vocab = merge_vocab(best, vocab)
   print(best)
+print(vocab)

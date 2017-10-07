@@ -247,5 +247,5 @@ if __name__ == '__main__':
     if args.output.name != '<stdout>':
         args.output = codecs.open(args.output.name, 'w', encoding='utf-8')
 
-    #main(args.input, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)
-    import profile; profile.run('main(args.input, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)')
+    main(args.input, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)
+    #import profile; profile.run('main(args.input, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)')

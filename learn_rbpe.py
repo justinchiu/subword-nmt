@@ -10,6 +10,7 @@ import re
 import copy
 import argparse
 from collections import defaultdict, Counter, namedtuple
+from heappy import PQ
 
 # hack for python2/3 compatibility
 from io import open
@@ -19,11 +20,11 @@ Vocab = namedtuple(
     'Vocab',
     [
         'sens',
-        'unigram_counts',
-        'unigram_to_senidxs',
+        'id',
+        'unigram_to_id',
+        'id_to_unigram',
         'bigram_counts',
         'bigram_to_senidxs',
-        'unigram_to_bigrams',
     ]
 )
 
@@ -62,44 +63,51 @@ def get_vocabulary(fobj, is_dict=False):
     """Read text and return dictionary that encodes vocabulary
     """
     sens = []
-    unigram_counts     = Counter()
-    unigram_to_senidxs = defaultdict(list)
-    bigram_counts      = Counter()
-    bigram_to_senidxs  = defaultdict(list)
-    unigram_to_bigrams = defaultdict(set)
+    unigram_to_id     = {}
+    id_to_unigram     = []
+    id                = 0
+    bigram_counts     = PQ()
+    bigram_to_senidxs = defaultdict(list)
     for i, line in enumerate(fobj):
         sen = line.strip().split()
         sens.append(sen)
-        #for word in sen:
-        #    unigram_counts[word] += 1
-        #    unigram_to_senidxs[word].append(i)
-        for bigram in zip(sen, sen[1:]):
-            bigram_counts[bigram] += 1
-            bigram_to_senidxs[bigram].append(i)
-            #unigram_to_bigrams[bigram[0]].add(bigram)
-            #unigram_to_bigrams[bigram[1]].add(bigram)
+        for word in sen:
+            if not word in unigram_to_id:
+                unigram_to_id[word] = id
+                id_to_unigram.append(word)
+                id += 1
+        for b in zip(sen, sen[1:]):
+            first = unigram_to_id[b[0]]
+            second = unigram_to_id[b[1]]
+            bigram_counts.increment(first, second)
+            bigram_to_senidxs[b].append(i)
     return Vocab(
         sens=sens,
-        unigram_counts=unigram_counts,
-        unigram_to_senidxs=unigram_to_senidxs,
+        id=[id],
+        unigram_to_id=unigram_to_id,
+        id_to_unigram=id_to_unigram,
         bigram_counts=bigram_counts,
         bigram_to_senidxs=bigram_to_senidxs,
-        unigram_to_bigrams=unigram_to_bigrams
     )
 
 def update_pair_statistics(pair, changed, stats, pointers):
     pass
 
 def replace_pair(pair, vocab):
-    unigram_counts     = vocab.unigram_counts
-    unigram_to_senidxs = vocab.unigram_to_senidxs
     bigram_counts      = vocab.bigram_counts
     bigram_to_senidxs  = vocab.bigram_to_senidxs
+    unigram_to_id= vocab.unigram_to_id
     first, second = pair
     pair_str = '++'.join(pair).replace('\\', '\\\\')
+    unigram_to_id[pair_str] = vocab.id[0]
+    vocab.id_to_unigram.append(pair_str)
+    vocab.id[0] += 1
     changes = []
     senidxs = vocab.bigram_to_senidxs[pair]
     sens = vocab.sens
+    pair_id = vocab.unigram_to_id[pair_str]
+    first_id = vocab.unigram_to_id[first]
+    second_id = vocab.unigram_to_id[second]
     for senidx in senidxs:
         sen = sens[senidx]
         senlen = len(sen)
@@ -111,22 +119,20 @@ def replace_pair(pair, vocab):
                 if i > 1 and sen[i-2] == first and sen[i-1] == second:
                     # Something like AB AB
                     # Previous word will be compressed, so count it!
-                    bigram_counts[(pair_str, pair_str)] += 1
+                    bigram_counts.increment(pair_id, pair_id)
                     # but also remove B A
-                    bigram_counts[(second, first)] -= 1
-                    if bigram_counts[(second, first)] < 0:
-                        del bigram_counts[(second, first)]
+                    bigram_counts.decrement(second_id, first_id)
                     left_bigram = (second, first)
                 elif i > 0:
                     left_word = sen[i-1]
+                    left_word_id = unigram_to_id[left_word]
                     # add new left bigram
                     new_left_bigram = (left_word, pair_str)
-                    bigram_counts[new_left_bigram] += 1
+                    bigram_counts.increment(left_word_id, pair_id)
                     bigram_to_senidxs[new_left_bigram].append(senidx)
                     # remove old left bigram
                     left_bigram = (left_word, first)
-                    if left_bigram in bigram_counts:
-                        bigram_counts[left_bigram] -= 1
+                    bigram_counts.decrement(left_word_id, first_id)
                 else:
                     # No bigram on the left
                     left_bigram = None
@@ -139,14 +145,14 @@ def replace_pair(pair, vocab):
                     right_bigram = None
                 elif i+2 < senlen:
                     right_word = sen[i+2]
+                    right_word_id = unigram_to_id[right_word]
                     # add new right bigram
                     new_right_bigram = (pair_str, right_word)
-                    bigram_counts[new_right_bigram] += 1
+                    bigram_counts.increment(pair_id, right_word_id)
                     bigram_to_senidxs[new_right_bigram].append(senidx)
                     # remove old right bigram
                     right_bigram = (second, right_word)
-                    if right_bigram in bigram_counts:
-                        bigram_counts[right_bigram] -= 1
+                    bigram_counts.decrement(second_id, right_word_id)
                 else:
                     right_bigram = None
                 occurrences.append((i, left_bigram, right_bigram))
@@ -165,9 +171,6 @@ def replace_pair(pair, vocab):
                 idx_to_delete = bigram_to_senidxs[right_bigram].index(senidx)
                 del bigram_to_senidxs[right_bigram][idx_to_delete]
 
-        # remove bigram statistics
-        del vocab.bigram_counts[pair]
-
 def main(infile, codefile, outfile, num_symbols, min_frequency=2, verbose=False, is_dict=False):
     """Learn num_symbols BPE operations from vocabulary, and write to outfile.
     """
@@ -180,24 +183,22 @@ def main(infile, codefile, outfile, num_symbols, min_frequency=2, verbose=False,
     stats = vocab.bigram_counts
     for i in range(num_symbols):
         # this is super sad, will write a mutable heap implementation
-        most_frequent = vocab.bigram_counts.most_common(1)[0][0]
-        if stats[most_frequent] < min_frequency:
+        most_frequent = vocab.bigram_counts.top()
+        stats.pop()
+        most_frequent = (vocab.id_to_unigram[most_frequent[0]], vocab.id_to_unigram[most_frequent[1]])
+        if stats.topCount() < min_frequency:
             sys.stderr.write('#no pair has frequency >= {0}. Stopping\n'.format(min_frequency))
             break
-
         if verbose:
             sys.stderr.write('#pair {0}: {1} {2} -> {1}{2} (frequency {3})\n'
                 .format(i, most_frequent[0], most_frequent[1], stats[most_frequent]))
         codefile.write('{0} {1}\n'.format(*most_frequent))
         changes = replace_pair(most_frequent, vocab)
         #update_pair_statistics(most_frequent, changes, stats, indices)
-        #del stats[most_frequent]
-        if False and not i % 100:
-            # seriously, what the fuck is this?
-            prune_stats(stats, big_stats, threshold)
-    for sen in vocab.sens:
-        outfile.write(' '.join(sen))
-        outfile.write('\n')
+    if outfile:
+        for sen in vocab.sens:
+            outfile.write(' '.join(sen))
+            outfile.write('\n')
 
 
 if __name__ == '__main__':
@@ -220,7 +221,7 @@ if __name__ == '__main__':
         args.input = codecs.open(args.input.name, encoding='utf-8')
     if args.codes.name != '<stderr>':
         args.codes = codecs.open(args.codes.name, 'w', encoding='utf-8')
-    if args.output.name != '<stdout>':
+    if args.output and args.output.name != '<stdout>':
         args.output = codecs.open(args.output.name, 'w', encoding='utf-8')
     main(args.input, args.codes, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)
-    #import profile; profile.run('main(args.input, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)')
+    #import profile; profile.run('main(args.input, args.codes, args.output, args.symbols, args.min_frequency, args.verbose, is_dict=args.dict_input)')

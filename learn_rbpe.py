@@ -100,8 +100,6 @@ def replace_pair(pair, vocab):
     changes = []
     senidxs = vocab.bigram_to_senidxs[pair]
     sens = vocab.sens
-    # update new unigram to senidxs pointer
-    #unigram_to_senidxs[pair_str] = senidxs
     for senidx in senidxs:
         sen = sens[senidx]
         senlen = len(sen)
@@ -133,7 +131,7 @@ def replace_pair(pair, vocab):
                     # No bigram on the left
                     left_bigram = None
                 if i+3 < senlen and sen[i+2] == first and sen[i+3] == second:
-                    # Lol fuck, need to be careful of not double counting though
+                    # Need to be careful of not double counting though
                     # right now this is undercounting, i.e. if we have AB AB
                     # this will not count AB,AB since it has not been processed yet
                     # We want to skip this case because it will be processed
@@ -159,11 +157,6 @@ def replace_pair(pair, vocab):
             # mutate sentence by removing bigram and adding new unigram
             del sen[i:i+2]
             sen.insert(i, pair_str)
-            # update unigram to senidxs pointers
-            #idx_to_delete = unigram_to_senidxs[first].index(senidx)
-            #del unigram_to_senidxs[first][idx_to_delete]
-            #idx_to_delete = unigram_to_senidxs[second].index(senidx)
-            #del unigram_to_senidxs[second][idx_to_delete]
             # remove bigram to senidxs pointers
             if left_bigram in bigram_to_senidxs:
                 idx_to_delete = bigram_to_senidxs[left_bigram].index(senidx)
@@ -172,10 +165,6 @@ def replace_pair(pair, vocab):
                 idx_to_delete = bigram_to_senidxs[right_bigram].index(senidx)
                 del bigram_to_senidxs[right_bigram][idx_to_delete]
 
-        # update unigram statistics
-        #unigram_counts[pair_str] += len(occurrences)
-        #unigram_counts[first] -= len(occurrences)
-        #unigram_counts[second] -= len(occurrences)
         # remove bigram statistics
         del vocab.bigram_counts[pair]
 
@@ -190,10 +179,8 @@ def main(infile, codefile, outfile, num_symbols, min_frequency=2, verbose=False,
     vocab = get_vocabulary(infile, is_dict)
     stats = vocab.bigram_counts
     for i in range(num_symbols):
+        # this is super sad, will write a mutable heap implementation
         most_frequent = vocab.bigram_counts.most_common(1)[0][0]
-        # what the fuck, does this guy not know what a heap is?
-        # what the fuck, does python not have a heap lol
-
         if stats[most_frequent] < min_frequency:
             sys.stderr.write('#no pair has frequency >= {0}. Stopping\n'.format(min_frequency))
             break
@@ -202,7 +189,6 @@ def main(infile, codefile, outfile, num_symbols, min_frequency=2, verbose=False,
             sys.stderr.write('#pair {0}: {1} {2} -> {1}{2} (frequency {3})\n'
                 .format(i, most_frequent[0], most_frequent[1], stats[most_frequent]))
         codefile.write('{0} {1}\n'.format(*most_frequent))
-        # lol what the fuck
         changes = replace_pair(most_frequent, vocab)
         #update_pair_statistics(most_frequent, changes, stats, indices)
         #del stats[most_frequent]
